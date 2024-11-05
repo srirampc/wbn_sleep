@@ -1,0 +1,6 @@
+-I./include/
+-I./ext/fmt/include/
+-I./ext/json/include/
+-I./ext/mio/include/
+-I./ext/CLI11/include/
+-I/usr/local/include

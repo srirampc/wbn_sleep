@@ -1,0 +1,11 @@
+{
+    "left_subnet" : "./data/Map_642_To_10242_30-Aug-2017_LH.txt",
+    "right_subnet": "./data/Map_642_To_10242_30-Aug-2017_RH.txt",
+    "left_right_map": "./data/Map_LH_RH_10242_30-Aug-2017.txt",
+    "left_right_map_small": "./data/Map_LH_RH_642_30-Aug-2017.txt",
+    "dist3d_probability": "./data/dist_inMeters_prob_LH_onesOnDiag.txt",
+    "weight_factor": "./data/weights_LH.txt",
+    "weight_factor_inpy": "./data/weights_INPY_both_hemi.txt",
+    "thalamus_cortex_distance": "./data/thalCort_dist_inMeters_LH.txt",
+    "intra_thalamus_distance":  "./data/dist_TC_LH_zeroDiag.txt"
+}
