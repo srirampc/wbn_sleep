@@ -16,22 +16,14 @@
 #include <source_data.hpp>
 
 class EdgeList {
+  public:
+    const Edge NullEdge = Edge(-1, -1, -1, -1, -1, -1, nullptr, 0.0);
+
   private:
     NetConfig& net_cfg;
     const SourceData& src_data;
     std::vector<Edge> edges;
 
-  public:
-    EdgeList(NetConfig& nc, const SourceData& sd)  // NOLINT
-        : net_cfg(nc), src_data(sd) {}
-
-    void clear() { edges.clear(); }
-
-    bool check(const CellTypes& CT, int ctype, int neuronx) const {
-        return CT[ctype].x > neuronx;
-    }
-
-  private:
     void generate_3D_connections(bool right_hemisphere) {
         //
         const CellTypes& CT = net_cfg.CT;
@@ -469,7 +461,6 @@ class EdgeList {
         }  // c
     }  // generate_MultiLayer_connections
 
-  private:
     // load network from the file (fixed structure) we
     // get from ucsd folks approximating MRI topology
     void load_MRI_network(const char* file) {
@@ -808,6 +799,15 @@ class EdgeList {
     }  // generate_connections
 
   public:
+    EdgeList(NetConfig& nc, const SourceData& sd)  // NOLINT
+        : net_cfg(nc), src_data(sd) {}
+
+    void clear() { edges.clear(); }
+
+    bool check(const CellTypes& CT, int ctype, int neuronx) const {
+        return CT[ctype].x > neuronx;
+    }
+
     void generate_radom_edges(bool useEuclideanDelays) {
         generate_random_connections(
             useEuclideanDelays);  // our own random connectivity
