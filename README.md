@@ -27,11 +27,12 @@ Usage of generate_network is as shown below:
       -o,--output_file TEXT [network_output.txt]  REQUIRED
                                   Path to Output File
 
-Two input config files are required.
-
+The following two input config files are required. Examples are provided in the config/ directory.
 1. mriNetworkNew.json : Defines the network neuron types and connections.
 2. data_config.json : Defines the paths to data files, whose format is as below; Make sure the data files pointed in the files are available 
 .
+
+```json
      {
          "left_subnet" : "./data/Map_642_To_10242_30-Aug-2017_LH.txt",
          "right_subnet": "./data/Map_642_To_10242_30-Aug-2017_RH.txt",
@@ -43,8 +44,9 @@ Two input config files are required.
          "thalamus_cortex_distance": "./data/thalCort_dist_inMeters_LH.txt",
          "intra_thalamus_distance":  "./data/dist_TC_LH_zeroDiag.txt"
      }
+```
 
-Examples are provided in the config/ directory. The program generate two ouput files
+ The program generate two ouput files
 
-1. summary file: Provied with the -s argument, Outputs the summary.
+1. Summary file: Provied with the -s argument, Outputs the summary.
 2. Output netowrk files: Provied with the -o argument.
