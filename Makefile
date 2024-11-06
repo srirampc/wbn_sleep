@@ -38,7 +38,7 @@ release: generate_network
 
 debug: generate_network_debug
 
-# constructs random network based on network.cfg file parameters
+# constructs random network based on config/mriNetworkNew.cfg file parameters
 network: release
 	mkdir -p output
-	./build/generate_network -c ./config/mriNetworkNew.cfg -o output/random_connection_info.txt
+	./build/generate_network -c ./config/mriNetworkNew.cfg -d ./config/data_config.json -s output/connect_summary.txt -o output/random_connection_info.txt
