@@ -3,3 +3,7 @@ output/
 build/
 tmp/
 build.debug/
+build.release/
+build/
+config/data
+scripts/
