@@ -23,6 +23,22 @@ struct Edge {
     // static int ct, cx, cy;  // cache for last to_ printed -> we want to print
     //                        // "In: " line sometimes
 
+    Edge() : from_t(-1), from_x(-1), from_y(-1), to_t(-1), to_x(-1), to_y(-1),
+          syntype(nullptr), delay(0.0), weightFactor(1) {}
+
+    Edge& operator=(const Edge& other) {
+        from_t = other.from_t;
+        from_x = other.from_x;
+        from_y = other.from_y;
+        to_t = other.to_t;
+        to_x = other.to_x;
+        to_y = other.to_y;
+        syntype = other.syntype;
+        delay = other.delay;
+        weightFactor = other.weightFactor;
+        return *this;
+    }
+
     inline bool same_to(const Edge& other) const {
         return (to_t == other.to_t && to_x == other.to_x &&
                 to_y == other.to_y);

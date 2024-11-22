@@ -3,9 +3,11 @@
 
 #include <cassert>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <omp.h>
 #include <string>
 #include <vector>
 //
@@ -22,6 +24,61 @@ using njson = nlohmann::json;
 //
 using BYTE = unsigned char;
 //
+
+template <typename RT> RT handle_mio_error(const std::error_code& error) {
+    const auto& errmsg = error.message();
+    std::cerr << "error mapping file:  " << errmsg << " exiting..."
+              << std::endl;
+    return RT(error.value());
+}
+
+template <typename VT>
+std::vector<std::size_t> par_mio_load_vector(VT* pout_vec,  // NOLINT
+                                             const char* file) {
+    std::uintmax_t f_size = std::filesystem::file_size(file);
+    std::vector<std::size_t> vt_nrecords;
+    //
+#pragma omp parallel default(none) shared(pout_vec, file, f_size, vt_nrecords)
+    {
+        int n_threads = omp_get_num_threads();
+        int tid = omp_get_thread_num();
+#pragma omp single
+        {
+            vt_nrecords.resize(n_threads, 0);
+        }
+        std::uintmax_t m_offst = block_low<uintmax_t>(tid, n_threads, f_size);
+        std::uintmax_t m_size = block_size<uintmax_t>(tid, n_threads, f_size);
+        //
+        std::error_code err_code;
+        mio::mmap_source in_mmap =
+            mio::make_mmap_source(file, m_offst, m_size, err_code);
+        if (err_code) {
+            handle_mio_error<int>(err_code);
+        } else {
+            const char* c_ptr = in_mmap.data();
+            if (tid != 0)
+                while (*c_ptr != '\n')
+                    c_ptr++;
+            //
+            vt_nrecords[tid] =
+                load_vector_until(pout_vec, c_ptr, c_ptr + m_size);
+        }
+    }
+    return vt_nrecords;
+}
+
+template <typename VT>
+std::size_t mio_load_vector(VT* pout_vec, const char* file) {  // NOLINT
+    std::error_code err_code;
+    mio::mmap_source in_mmap = mio::make_mmap_source(file, err_code);
+    if (err_code) {
+        handle_mio_error<int>(err_code);
+        return 0;
+    } else {
+        const char* c_ptr = in_mmap.data();
+        return load_vector(pout_vec, c_ptr);
+    }
+}
 
 class SourceData {
   public:
@@ -47,9 +104,18 @@ class SourceData {
 
   private:
     const NetConfig& nc;
-    float maxDistance = 0;  // max distance between two neurons
-    float max_TC_Distance = 0;
-    bool useDelays = false;
+    float maxDistance;  // max distance between two neurons
+    float max_TC_Distance;
+    bool useDelays;
+    //
+    // mapping between LH-RH neurons
+    Vector1d<int> map_LH_RH;
+    //
+    // mapping between a subset of LH-RH neurons
+    Vector1d<int> map_LH_RH_small;
+    //
+    //
+    Vector1d<float> TC_Dist;
     //
     // distance lookup table given for MRI data; [0][][] for left hemispher
     std::array<Vector2d<float>, 2> Distance3D;
@@ -59,17 +125,8 @@ class SourceData {
     // distance lookup table given for MRI data, [0][] for left hemisphere
     std::array<Vector1d<float>, 2> Subnet;
     //
-    // mapping between LH-RH neurons
-    Vector1d<int> map_LH_RH = Vector1d<int>(MAX_SUBNET_POINTS, 0);
-    //
-    // mapping between a subset of LH-RH neurons
-    Vector1d<int> map_LH_RH_small = Vector1d<int>(MAX_SUBNET_POINTS, 0);
-    //
-    //
-    Vector1d<float> TC_Dist = Vector1d<float>(NUM_TC_POINTS, 0.0);
-    //
     // lookup table given for MRI data; [0][][] for left hemispher
-    Vector3d<float> Dist_Prob;
+    std::array<Vector2d<float>, NUM_PARAM> Dist_Prob;
     //
     //
     Vector2d<float> Dist_intraThalamus;
@@ -82,7 +139,11 @@ class SourceData {
     std::map<std::string, int> mapLayerNameId_PY;
 
   public:
-    explicit SourceData(const NetConfig& in_nc) : nc(in_nc) {}
+    explicit SourceData(const NetConfig& in_nc)
+        : nc(in_nc), maxDistance(0), max_TC_Distance(0), useDelays(false),
+          map_LH_RH(MAX_SUBNET_POINTS, -1),
+          map_LH_RH_small(MAX_SUBNET_POINTS, -1), TC_Dist(NUM_TC_POINTS, -1.0) {
+    }
     ~SourceData() {}
 
     // Access functions
@@ -90,9 +151,8 @@ class SourceData {
         return Subnet;
     }
 
-    inline const Vector1d<float>&
-    Subnet_hemisphere_Ref(bool right_hemisphere) const {
-        return Subnet[right_hemisphere];
+    inline const Vector1d<float>& Subnet_Ref(bool right) const {
+        return Subnet[right];
     }
 
     inline const Vector1d<int>& map_LH_RH_Ref() const { return map_LH_RH; }
@@ -143,12 +203,12 @@ class SourceData {
 
     inline double dist_only(int id_from, int id_to) const {
         // assert(Dist_Prob[id_from][id_to][0]!=-1);
-        return Dist_Prob(id_from, id_to, 0);
+        return Dist_Prob[0](id_from, id_to);
     }
 
     inline double prob_only(int id_from, int id_to) const {
         // assert(Dist_Prob[id_from][id_to][1]!=-1);
-        return Dist_Prob(id_from, id_to, 1);
+        return Dist_Prob[1](id_from, id_to);
     }
 
     inline double intraThalamicDistOnSphere(int id_from, int id_to) const {
@@ -254,11 +314,11 @@ class SourceData {
                   << (right_hemisphere ? "R" : "L") << ")" << std::endl;
         //
         if (Subnet[right_hemisphere].size() == 0) {
-            Subnet[right_hemisphere] = Vector1d<float>(MAX_SUBNET_POINTS, 0.0);
+            Subnet[right_hemisphere] = Vector1d<float>(MAX_SUBNET_POINTS, -1);
         }
 
-        for (int i = 0; i < MAX_SUBNET_POINTS; i++)
-            Subnet[right_hemisphere](i) = -1;
+        // for (int i = 0; i < MAX_SUBNET_POINTS; i++)
+        //    Subnet[right_hemisphere](i) = -1;
 
         FILE* f = fopen(file, "r");
         assert(f);
@@ -285,12 +345,9 @@ class SourceData {
         fclose(f);
     }
 
-    void load_3D_LH_RH_correspondence(const char* file, int Map[]) {
+    void load_3D_LH_RH_correspondence(Vector1d<int>* pMap, const char* file) {
         std::cerr << "Loading 3D LH-RH interhemispheric mapping : " << file
                   << std::endl;
-
-        for (int i = 0; i < MRI_POINTS; i++)
-            Map[i] = -1;
 
         FILE* f = fopen(file, "r");
         assert(f);
@@ -304,201 +361,140 @@ class SourceData {
             map--;                    // MATLAB vs C indexing
             assert(id < MRI_POINTS);  // assert(map<MAX_SUBNET_POINTS);
 
-            Map[id] = map;
-
+            pMap->set(id, map);
             // printf("Mapping id: %d to %d \n",id,map);
         }  // while
 
         fclose(f);
     }
 
-    void load_3D_LH_RH_correspondence(const char* data_file, bool full_data) {
+    inline void load_3D_LH_RH_correspondence(const char* data_file,
+                                             bool full_data) {
         if (full_data) {
-            load_3D_LH_RH_correspondence(data_file, map_LH_RH.data());
+            load_3D_LH_RH_correspondence(&map_LH_RH, data_file);
         } else {
-            load_3D_LH_RH_correspondence(data_file, map_LH_RH_small.data());
+            load_3D_LH_RH_correspondence(&map_LH_RH_small, data_file);
         }
     }
 
     void load_thalCort_dist(const char* file) {
         std::cerr << "Load thalCort_dist : " << file << std::endl;
-
         for (int ii = 0; ii < NUM_TC_POINTS; ii++)
             TC_Dist(ii) = -1;
 
         FILE* f = fopen(file, "r");
         assert(f);
-
         int i = 0;
         while (1) {
             float dist;
             if (fscanf(f, "%f\n", &dist) != 1)
                 break;
-
             if (dist >= 0) {
                 TC_Dist(i) = dist;
             }
-
             if (dist > max_TC_Distance) {  // get max distance for scaling later
                 max_TC_Distance = dist;
             }
-
             i++;
         }  // while
-
         fclose(f);
     }
 
+    inline int parse_dist_prob_line1(Vector2d<float>* pdist_vec,
+                                     Vector2d<float>* pprob_vec,
+                                     const char*& c_ptr) {  // NOLINT
+        char* end;
+        int i = std::strtol(c_ptr, &end, 10);
+        if (c_ptr == end) {
+            return -1;
+        }
+        c_ptr = end;
+        int j = std::strtol(c_ptr, &end, 10);
+        if (c_ptr == end) {
+            return -1;
+        }
+        c_ptr = end;
+        float v1 = std::strtof(c_ptr, &end);
+        if (c_ptr == end) {
+            return -1;
+        }
+        c_ptr = end;
+        float v2 = std::strtof(c_ptr, &end);
+        if (c_ptr == end) {
+            return -1;
+        }
+        c_ptr = end;
+        pdist_vec->set(--i, --j, v1);
+        pprob_vec->set(--i, --j, v2);
+        return 0;
+    }
+
     void load_3D_dist_prob(const char* file) {
-        Dist_Prob = Vector3d<float>(MRI_POINTS, MRI_POINTS, NUM_PARAM, -1.0);
-
+        timer load_timer;
         std::cerr << "Load 3D_dist_prob : " << file << std::endl;
-
-        // for (int i=0; i<MRI_POINTS_FULL; i++){
-        //    for (int ii=0; ii<MRI_POINTS_FULL; ii++){
-        //      for (int kk=0; kk<NUM_PARAM; kk++){
-        //      // cerr << i << " " << ii << " " << kk << endl;
-        //	      Dist_Prob[i][ii][kk]=-1;
-        //      }
-        //    }
-        //  }
-
-        FILE* f = fopen(file, "r");
-        assert(f);
-
-        // int i = 0;
-        while (1) {
-            int from, to;
-            float dist, conn_prob;
-            if (fscanf(f, "%d %d %f %f\n", &from, &to, &dist, &conn_prob) != 4)
-                break;
-            from--;
-            to--;  // MATLAB vs C indexing
-            assert(from < MRI_POINTS);
-            assert(to < MRI_POINTS);
-            Dist_Prob(from, to, 0) = dist;
-            Dist_Prob(from, to, 1) = conn_prob;
-
-            if (dist > maxDistance)  // get max distance for scaling later
-                maxDistance = dist;
-        }  // while
-
-        fclose(f);
+        for (int ix = 0; ix < NUM_PARAM; ix++) {
+            Dist_Prob[ix] = Vector2d<float>(MRI_POINTS, MRI_POINTS, -1.0);
+        }
+        std::error_code err_code;
+        mio::mmap_source in_mmap = mio::make_mmap_source(file, err_code);
+        if (err_code) {
+            handle_mio_error<int>(err_code);
+        } else {
+            const char* c_ptr = in_mmap.data();
+            std::size_t nrecords = 0;
+            do {
+                if (parse_dist_prob_line1(&Dist_Prob[0], &Dist_Prob[1],
+                                          c_ptr) != 0)
+                    break;
+                nrecords++;
+            } while (1);  // while
+        }
+        float maxDistance = *std::max_element(Dist_Prob[0].data_vec().begin(),
+                                              Dist_Prob[0].data_vec().end());
+        PRINT_RUNTIME_MEMUSED(load_timer, "Load 3D Dist : ", std::cout);
     }
 
     void load_intraThalamus_dist(const char* file) {
         Dist_intraThalamus =
             Vector2d<float>(thalPopulations, thalPopulations, -1.0);
         std::cerr << "Load intraThalamus_dist : " << file << std::endl;
-        FILE* f = fopen(file, "r");
-        assert(f);
-        while (1) {
-            int from, to;
-            float dist;
-            if (fscanf(f, "%d %d %f\n", &from, &to, &dist) != 3)
-                break;
-            from--;
-            to--;
-            assert(from < MRI_POINTS);
-            assert(to < MRI_POINTS);
-            Dist_intraThalamus(from, to) = dist;
-        }
-        fclose(f);
+        mio_load_vector(&Dist_intraThalamus, file);
     }
 
-    void load_weight_factors(const char* file) {
+    void par_load_weight_factors(const char* file) {
         std::cerr << "load_weight_factors : " << file << std::endl;
         timer run_timer;
-        weight_factor = Vector4d<float>(
-            SourceData::MRI_POINTS_FULL, SourceData::MRI_POINTS_FULL,
-            SourceData::NUM_LAYERS, SourceData::NUM_LAYERS, -1.0);
+        weight_factor = Vector4d<float>(MRI_POINTS_FULL, MRI_POINTS_FULL,
+                                        NUM_LAYERS, NUM_LAYERS, -1.0);
         PRINT_RUNTIME_MEMUSED(run_timer, "Init weight_factor : ", std::cout);
         //
-
-        std::error_code err_code;
-        mio::mmap_source in_mmap;
-        in_mmap.map(file, err_code);
-        if (err_code) {
-            handle_error(err_code);
-            return;
-        }
-
         run_timer.reset();
-        const char* c_ptr = in_mmap.data();
-        // int i = 0;
-        do {
-            int fromNeuron, toNeuron, fromLayer, toLayer;  //,factor;
-            float factor;
-            //
-            char* end;
-            fromNeuron = std::strtol(c_ptr, &end, 10);
-            if (c_ptr == end) {
-                break;
-            }
-            c_ptr = end;
-            toNeuron = std::strtol(c_ptr, &end, 10);
-            if (c_ptr == end) {
-                break;
-            }
-            c_ptr = end;
-            fromLayer = std::strtol(c_ptr, &end, 10);
-            if (c_ptr == end) {
-                break;
-            }
-            c_ptr = end;
-            toLayer = std::strtol(c_ptr, &end, 10);
-            if (c_ptr == end) {
-                break;
-            }
-            c_ptr = end;
-            factor = std::strtof(c_ptr, &end);
-            if (c_ptr == end) {
-                break;
-            }
-            c_ptr = end;
-
-            // fmt::print("{:d} {:d} {:d} {:d} {:f} \n", fromNeuron, toNeuron,
-            // fromLayer, toLayer, factor);
-            fromNeuron--;
-            toNeuron--;
-            fromLayer--;
-            toLayer--;  // MATLAB vs C indexing
-            assert(fromNeuron < SourceData::MRI_POINTS_FULL);
-            assert(toNeuron < SourceData::MRI_POINTS_FULL);
-            weight_factor(fromNeuron, toNeuron, fromLayer, toLayer) = factor;
-
-        } while (1);  // while
+        std::vector<std::size_t> vt_nrecords =
+            par_mio_load_vector(&weight_factor, file);
+        fmt::print("Read Records {} \n", fmt::join(vt_nrecords, ", "));
         PRINT_RUNTIME_MEMUSED(run_timer, "Loaded weight_factor : ", std::cout);
     }
 
-    void load_weightFactors_INPY(const char* file) {
+    void load_weight_factors(const char* file) {
+        std::cerr << "seq load_weight_factors : " << file << std::endl;
+        timer run_timer;
+        weight_factor = Vector4d<float>(MRI_POINTS_FULL, MRI_POINTS_FULL,
+                                        NUM_LAYERS, NUM_LAYERS, -1.0);
+        PRINT_RUNTIME_MEMUSED(run_timer,
+                              "Seq Init weight_factor : ", std::cout);
+        //
+        run_timer.reset();
+        mio_load_vector(&weight_factor, file);
+        PRINT_RUNTIME_MEMUSED(run_timer,
+                              "Seq Loaded weight_factor : ", std::cout);
+        //
+    }
+
+    void load_weight_factors_INPY(const char* file) {
         weight_factor_INPY =
             Vector2d<float>(MRI_POINTS_FULL, MRI_POINTS_FULL, -1);
         std::cerr << "load_weightFactors_INPY" << std::endl;
-        //  for (int i=0; i<MRI_POINTS_FULL; i++){
-        //    for (int ii=0; ii<MRI_POINTS_FULL; ii++){
-        //              weight_factor_INPY[i][ii] =-1;
-        //    }
-        //  }
-
-        FILE* f = fopen(file, "r");
-        assert(f);
-
-        // int i = 0;
-        while (1) {
-            int fromNeuron, toNeuron;  //,factor;
-            float factor;
-            if (fscanf(f, "%d %d %f \n", &fromNeuron, &toNeuron, &factor) != 3)
-                break;
-            fromNeuron--;
-            toNeuron--;  // MATLAB vs C indexing
-            assert(fromNeuron < MRI_POINTS_FULL);
-            assert(toNeuron < MRI_POINTS_FULL);
-            weight_factor_INPY(fromNeuron, toNeuron) = factor;
-
-        }  // while
-
-        fclose(f);
+        mio_load_vector(&weight_factor_INPY, file);
     }
 
     //////////////// Read binary files /////////////////////
@@ -538,7 +534,7 @@ class SourceData {
     ////////////// End - read binary files /////////////////
 
   public:
-    int load_source_data(const DataConfig& data_cfg) {
+    int load_source_data(const DataConfig& data_cfg, bool parallel_run) {
         timer load_timer;
         //
         useDelays = true;
@@ -564,13 +560,17 @@ class SourceData {
                               "Load dist3d_probability : ", std::cout);
         //
         load_timer.reset();
-        load_weightFactors_INPY(data_cfg.weight_factor_inpy.c_str());
+        load_weight_factors_INPY(data_cfg.weight_factor_inpy.c_str());
         load_timer.measure_accumulate_print("Load IN PY : ", std::cout, false);
         print_memory_usage<uint64_t>("; ", std::cout);
         //
         //    load_weightFactors_binary(argv[3]);
         load_timer.reset();
-        load_weight_factors(data_cfg.weight_factor.c_str());
+        if (parallel_run) {
+            par_load_weight_factors(data_cfg.weight_factor.c_str());
+        } else {
+            load_weight_factors(data_cfg.weight_factor.c_str());
+        }
         PRINT_RUNTIME_MEMUSED(load_timer, "Load Weight Factor : ", std::cout);
 
         load_timer.reset();
