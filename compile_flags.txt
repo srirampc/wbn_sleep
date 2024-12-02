@@ -3,4 +3,5 @@
 -I./ext/json/include/
 -I./ext/mio/include/
 -I./ext/CLI11/include/
+-I./ext/Catch2/include/catch2
 -I/usr/local/include

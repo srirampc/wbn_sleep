@@ -5,11 +5,13 @@ set(GEN_NETWORK_VERSION 1.0)
 project(${PROJECT_NAME_STR} C CXX)
 
 #
+#
 set(CMAKE_VERBOSE_MAKEFILE ON)
 set(BUILD_SHARED_LIBS ON)
 
 # option to build test
 option(BUILD_TESTING "Build tests" ON) # build tests
+
 #
 # Requires at least C++17
 set(CMAKE_CXX_STANDARD 17)
@@ -38,8 +40,7 @@ set(JSON_SRC_DIR "${PROJECT_SOURCE_DIR}/ext/json")
 set(FMT_SRC_DIR "${PROJECT_SOURCE_DIR}/ext/fmt")
 set(MIO_SRC_DIR "${PROJECT_SOURCE_DIR}/ext/mio")
 set(CLI11_SRC_DIR "${PROJECT_SOURCE_DIR}/ext/CLI11")
-# set(CMAKE_BUILD_TYPE Debug)
-# set(CMAKE_BUILD_TYPE Release)
+set(CATCH2_SRC_DIR "${PROJECT_SOURCE_DIR}/ext/Catch2")
 
 # include directories
 include_directories("${PROJECT_SOURCE_DIR}/include/")
@@ -48,7 +49,7 @@ include_directories("${PROJECT_SOURCE_DIR}/include/")
 # list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # message(STATUS "MODULE PATH   ${CMAKE_MODULE_PATH}")
 
-# External headers for sqlite, fmt, cereal and CLI11
+# Interface to Header files 
 add_library(json INTERFACE)
 target_include_directories(json INTERFACE ${JSON_SRC_DIR}/include)
 add_library(fmt INTERFACE)
@@ -57,6 +58,8 @@ add_library(mio INTERFACE)
 target_include_directories(mio INTERFACE ${MIO_SRC_DIR}/include)
 add_library(cli11 INTERFACE)
 target_include_directories(cli11 INTERFACE ${CLI11_SRC_DIR}/include)
+add_library(catch2 INTERFACE)
+target_include_directories(catch2 INTERFACE ${CATCH2_SRC_DIR}/include/catch2)
 
 # Check if OpenMP is available
 find_package(OpenMP REQUIRED)
@@ -66,14 +69,23 @@ endif()
 
 # Compile
 set(PROJECT_EXEC ${PROJECT_NAME_STR}.x)
+set(PROJECT_TEST_EXEC test_${PROJECT_NAME_STR}.x)
 
 # Executable
 add_executable(${PROJECT_EXEC} ${FMT_SRC_DIR}/src/format.cc src/generate_network.cpp)
-#
 add_compile_definitions(GEN_NETWORK_VERSION=${GEN_NETWORK_VERSION})
 # OpenMP
 include_directories(${OpenMP_CXX_INCLUDE_DIRS})
 target_link_libraries(${PROJECT_EXEC} PUBLIC
     OpenMP::OpenMP_CXX json fmt mio cli11 ${CMAKE_DL_LIBS})
 
-
+if(${BUILD_TESTING})
+    add_executable(${PROJECT_TEST_EXEC} ${FMT_SRC_DIR}/src/format.cc
+        ${CATCH2_SRC_DIR}/src/catch_amalgamated.cpp
+        tests/test_generate_network.cpp)
+    # target_compile_options(${PROJECT_TEST_EXEC}
+    #         --coverage -g -O0 -fprofile-arcs -ftest-coverage ${OpenMP_CXX_FLAGS})
+    target_link_libraries(${PROJECT_TEST_EXEC} PRIVATE
+                          OpenMP::OpenMP_CXX json fmt mio catch2
+                          ${CMAKE_DL_LIBS})
+endif(${BUILD_TESTING})
