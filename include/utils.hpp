@@ -10,6 +10,7 @@
 #include <cmath>
 //
 #include <chrono>  // NOLINT
+#include <filesystem>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -216,7 +217,7 @@ struct StringUtil {
 #include <string_view>
 
     static inline bool starts_with(std::string_view str,
-                                 std::string_view suffix) {
+                                   std::string_view suffix) {
         return str.size() >= suffix.size() &&
                0 == str.compare(0, suffix.size(), suffix);
     }
@@ -237,7 +238,8 @@ struct StringUtil {
     }
 
     static bool starts_with(const std::string& str, const char* suffix) {
-        return starts_with(str, suffix, std::string::traits_type::length(suffix));
+        return starts_with(str, suffix,
+                           std::string::traits_type::length(suffix));
     }
 
     static bool ends_with(const std::string& str, const char* suffix,
@@ -271,9 +273,23 @@ struct MathUtil {
 
     // TODO(x) use mersennw twister instead of this weak guy
     static inline double rand01() {
-        return (static_cast<double>(rand()) / (RAND_MAX)); // NOLINT
+        return (static_cast<double>(rand()) / (RAND_MAX));  // NOLINT
     }
-
 };
+
+#include <omp.h>
+template <typename T> bool is_file_big_enough(const char* file, T min_limit) {
+    T f_size(std::filesystem::file_size(file));
+    T per_proc_size = 0;
+#pragma omp parallel default(none) shared(per_proc_size)
+    {
+        int n_threads = omp_get_num_threads();
+#pragma omp single
+        {
+            per_proc_size = T(f_size / n_threads);
+        }
+    }
+    return per_proc_size > min_limit;
+}
 
 #endif  // !UTILS_HPP

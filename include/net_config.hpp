@@ -49,7 +49,8 @@ private:
     // config via existence of "r" prefix in cell type name
     int parse_config_cfg(char const* file) {
         std::string line, tok;
-        double x, y, ratio_x, ratio_y;
+        // double x, y, ratio_x, ratio_y;
+        double ratio_x, ratio_y;
         FILE* f = fopen(file, "r");
         assert(f);
 

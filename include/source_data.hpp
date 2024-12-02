@@ -7,6 +7,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <numeric>
 #include <omp.h>
 #include <string>
 #include <vector>
@@ -33,8 +34,7 @@ template <typename RT> RT handle_mio_error(const std::error_code& error) {
 }
 
 template <typename VT>
-std::vector<std::size_t> par_mio_load_vector(VT* pout_vec,  // NOLINT
-                                             const char* file) {
+std::vector<std::size_t> par_mio_load_vector(VT* pout_vec, const char* file) {
     std::uintmax_t f_size = std::filesystem::file_size(file);
     std::vector<std::size_t> vt_nrecords;
     //
@@ -93,7 +93,6 @@ class SourceData {
     static constexpr int thalPopulations = 2 * 642;
     static constexpr int numParam = 2;
     static constexpr int numLayers = 6;
-
     // max delay between farthest neurons. all delays will be scaled according
     // to this
     static constexpr float maxDelay = 40;
@@ -224,13 +223,6 @@ class SourceData {
     }
 
   private:
-    int handle_error(const std::error_code& error) {
-        const auto& errmsg = error.message();
-        std::cerr << "error mapping file:  " << errmsg << " exiting..."
-                  << std::endl;
-        return error.value();
-    }
-
     std::map<std::string, int> fillDict_PY(std::map<std::string, int> m) {
         m.insert(std::pair<std::string, int>("CX", 0));
         m.insert(std::pair<std::string, int>("CX3", 1));
@@ -245,12 +237,10 @@ class SourceData {
         m.insert(std::pair<std::string, int>("rCX5a", 3));
         m.insert(std::pair<std::string, int>("rCX5b", 4));
         m.insert(std::pair<std::string, int>("rCX6", 5));
-
         return m;
     }
 
     std::map<std::string, int> fillDict_IN(std::map<std::string, int> m) {
-
         m.insert(std::pair<std::string, int>("IN", 0));
         m.insert(std::pair<std::string, int>("IN3", 1));
         m.insert(std::pair<std::string, int>("IN4", 2));
@@ -264,7 +254,6 @@ class SourceData {
         m.insert(std::pair<std::string, int>("rIN5a", 3));
         m.insert(std::pair<std::string, int>("rIN5b", 4));
         m.insert(std::pair<std::string, int>("rIN6", 5));
-
         return m;
     }
 
@@ -300,11 +289,9 @@ class SourceData {
             Distance3D[right_hemisphere](from, to) = dist;
             // avgDist += dist;
             // numCons = numCons + 1;
-
             if (dist > maxDistance)  // get max distance for scaling later
                 maxDistance = dist;
         }  // while
-
         fclose(f);
     }
 
@@ -425,7 +412,7 @@ class SourceData {
         }
         c_ptr = end;
         pdist_vec->set(--i, --j, v1);
-        pprob_vec->set(--i, --j, v2);
+        pprob_vec->set(i, j, v2);
         return 0;
     }
 
@@ -449,8 +436,9 @@ class SourceData {
                 nrecords++;
             } while (1);  // while
         }
-        float maxDistance = *std::max_element(Dist_Prob[0].data_vec().begin(),
-                                              Dist_Prob[0].data_vec().end());
+        // float maxDistance = *std::max_element(
+        //     Dist_Prob[0].data_vec().begin(),
+        //     Dist_Prob[0].data_vec().end());
         PRINT_RUNTIME_MEMUSED(load_timer, "Load 3D Dist : ", std::cout);
     }
 
@@ -471,7 +459,8 @@ class SourceData {
         run_timer.reset();
         std::vector<std::size_t> vt_nrecords =
             par_mio_load_vector(&weight_factor, file);
-        fmt::print("Read Records {} \n", fmt::join(vt_nrecords, ", "));
+        fmt::print("Read weight_factor Records {} \n",
+                   std::accumulate(vt_nrecords.begin(), vt_nrecords.end(), 0));
         PRINT_RUNTIME_MEMUSED(run_timer, "Loaded weight_factor : ", std::cout);
     }
 
@@ -487,7 +476,16 @@ class SourceData {
         mio_load_vector(&weight_factor, file);
         PRINT_RUNTIME_MEMUSED(run_timer,
                               "Seq Loaded weight_factor : ", std::cout);
-        //
+    }
+
+    void par_load_weight_factors_INPY(const char* file) {
+        weight_factor_INPY =
+            Vector2d<float>(MRI_POINTS_FULL, MRI_POINTS_FULL, -1);
+        std::cerr << "load_weightFactors_INPY" << std::endl;
+        std::vector<std::size_t> vt_nrecords =
+            par_mio_load_vector(&weight_factor_INPY, file);
+        fmt::print("Read weight_factor_INPY Records {} \n",
+                   std::accumulate(vt_nrecords.begin(), vt_nrecords.end(), 0));
     }
 
     void load_weight_factors_INPY(const char* file) {
@@ -540,15 +538,12 @@ class SourceData {
         useDelays = true;
         load_3D_subnet(data_cfg.left_subnet.c_str(), 0);   // left
         load_3D_subnet(data_cfg.right_subnet.c_str(), 1);  // right
-        PRINT_RUNTIME_MEMUSED(load_timer, "Load 3D subnetwork : ", std::cout);
-
         //
-        load_timer.reset();
         load_3D_LH_RH_correspondence(data_cfg.left_right_map.c_str(), true);
         load_3D_LH_RH_correspondence(data_cfg.left_right_map_small.c_str(),
                                      false);
         PRINT_RUNTIME_MEMUSED(load_timer,
-                              "Load 3D LH-RH correspondence : ", std::cout);
+                              "Load 3D Subnet & LH-RH corres. : ", std::cout);
 
         mapLayerNameId_IN = fillDict_IN(mapLayerNameId_IN);
         mapLayerNameId_PY = fillDict_PY(mapLayerNameId_PY);
@@ -560,7 +555,11 @@ class SourceData {
                               "Load dist3d_probability : ", std::cout);
         //
         load_timer.reset();
-        load_weight_factors_INPY(data_cfg.weight_factor_inpy.c_str());
+        if (parallel_run) {
+            par_load_weight_factors_INPY(data_cfg.weight_factor_inpy.c_str());
+        } else {
+            load_weight_factors_INPY(data_cfg.weight_factor_inpy.c_str());
+        }
         load_timer.measure_accumulate_print("Load IN PY : ", std::cout, false);
         print_memory_usage<uint64_t>("; ", std::cout);
         //
@@ -575,13 +574,9 @@ class SourceData {
 
         load_timer.reset();
         load_thalCort_dist(data_cfg.thalamus_cortex_distance.c_str());
-        PRINT_RUNTIME_MEMUSED(load_timer,
-                              "Load Thalamic Cortex Dist : ", std::cout);
-
-        load_timer.reset();
         load_intraThalamus_dist(data_cfg.intra_thalamus_distance.c_str());
         PRINT_RUNTIME_MEMUSED(load_timer,
-                              "Load Intra Thalamic Dist : ", std::cout);
+                              "Load Thalamus-Cortex & Intra Thalamic Dist : ", std::cout);
         return 0;
     }
 };
