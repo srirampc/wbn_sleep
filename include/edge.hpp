@@ -1,6 +1,7 @@
 #ifndef EDGE_HPP
 #define EDGE_HPP
 
+#include <cmath>
 #include <iostream>
 
 #include <connections.hpp>
@@ -19,7 +20,9 @@ struct Edge {
     Edge(int ft, int fx, int fy, int tt, int tx, int ty,
          const Connections::conn_t* s, double d, double weightF = 1)
         : from_t(ft), from_x(fx), from_y(fy), to_t(tt), to_x(tx), to_y(ty),
-          syntype(s), delay(d), weightFactor(weightF) {}
+          syntype(s), delay(d), weightFactor(weightF) {
+        assert(std::isinf(delay) == false);
+    }
     // static int ct, cx, cy;  // cache for last to_ printed -> we want to print
     //                        // "In: " line sometimes
 

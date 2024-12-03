@@ -436,9 +436,8 @@ class SourceData {
                 nrecords++;
             } while (1);  // while
         }
-        // float maxDistance = *std::max_element(
-        //     Dist_Prob[0].data_vec().begin(),
-        //     Dist_Prob[0].data_vec().end());
+        maxDistance = *std::max_element(Dist_Prob[0].data_vec().begin(),
+                                        Dist_Prob[0].data_vec().end());
         PRINT_RUNTIME_MEMUSED(load_timer, "Load 3D Dist : ", std::cout);
     }
 
@@ -575,8 +574,9 @@ class SourceData {
         load_timer.reset();
         load_thalCort_dist(data_cfg.thalamus_cortex_distance.c_str());
         load_intraThalamus_dist(data_cfg.intra_thalamus_distance.c_str());
-        PRINT_RUNTIME_MEMUSED(load_timer,
-                              "Load Thalamus-Cortex & Intra Thalamic Dist : ", std::cout);
+        PRINT_RUNTIME_MEMUSED(
+            load_timer,
+            "Load Thalamus-Cortex & Intra Thalamic Dist : ", std::cout);
         return 0;
     }
 };
