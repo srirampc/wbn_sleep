@@ -1,5 +1,13 @@
 ## Generate Network for Whole brain Modelling
 
+### Build Requisites
+
+1. make 
+2. C++ 17 compiler (Tested with gcc 11.4.1 and 12.3.0 on RedHat Linux v9)
+3. CMake (if required to build with cmake)
+
+
+### Building the Source
 Clone the repository with the following command 
 
     git clone https://github.com/srirampc/wbn_sleep.git
@@ -8,6 +16,8 @@ Clone the repository with the following command
 To build the executable using make, run `make` as below
 
     make release
+
+### Usage 
 
 The executable is generated in the build/ directory. Run as below
 
@@ -26,6 +36,11 @@ Usage of generate_network is as shown below:
       -d,--data_config TEXT:FILE  Path to Data Config File
       -o,--output_file TEXT [network_output.txt]  REQUIRED
                                   Path to Output File
+      -p,--parallel               Flag if Parallel Run
+
+The parallel version parallelizes two parts
+
+#### Input/Config Files
 
 The following two input config files are required. Examples are provided in the config/ directory.
 1. mriNetworkNew.json : Defines the network neuron types and connections.
