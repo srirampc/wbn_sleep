@@ -43,7 +43,7 @@ clean:
 	rm -rf $(DEBUG_BUILD_DIR)/*.o $(DEBUG_BUILD_DIR)/generate_network
 
 $(BUILD_DIR):
-	ln -s ../ext/fmt/src/format.cc src/format.cpp
+	- ln -s ../ext/fmt/src/format.cc src/format.cpp
 	mkdir -p $(BUILD_DIR)/
 
 generate_network: $(BUILD_DIR) $(objects)

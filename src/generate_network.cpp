@@ -32,12 +32,12 @@ int generate_network(const AppArguments& in_args) {
         assert(net_cfg.both_hemispheres_detected);
 
         SourceData net_sd(net_cfg);  // Init. Source Data
-        net_sd.load_source_data(in_args.data_cfg, in_args.parallel);
+        net_sd.load_source_data(in_args.data_cfg, in_args.parallel_read);
 
         // Reduction of number neurons, if ratio in config
         net_cfg.CT.MRI_reduce();
 
-        EdgeList net_ce(net_cfg, net_sd, in_args.parallel);      // Init. Edge List
+        EdgeList net_ce(net_cfg, net_sd, in_args.parallel_build);      // Init. Edge List
         net_ce.generate_multilayer_edges();
 
         timer w_timer;
@@ -61,6 +61,9 @@ int generate_network(const AppArguments& in_args) {
 int main(int argc, char* argv[]) {
     AppArguments in_args;
     CLI11_PARSE(in_args.app, argc, argv);  // Parse command line arguments
+    if(in_args.parallel) {
+         in_args.parallel_read = in_args.parallel_build = in_args.parallel;
+    }
     in_args.print();
     if (in_args.data_cfg_path.length() > 0) {
         try {
